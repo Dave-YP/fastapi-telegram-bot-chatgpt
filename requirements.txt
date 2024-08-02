@@ -1,9 +1,8 @@
-fastapi
-uvicorn
-pydantic
-redis
-python-telegram-bot
-requests
-openai
-python-dotenv
 aiohttp
+fastapi
+openai
+pydantic
+python-dotenv
+python-telegram-bot
+redis
+uvicorn
