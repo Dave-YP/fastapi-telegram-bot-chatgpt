@@ -41,7 +41,7 @@ async def ask(question: Question):
 
     if question_count >= 3:
         raise HTTPException(
-            status_code=429,
+            status_code=451,
             detail="Лимит в 3 вопроса на день."
         )
 
@@ -66,6 +66,23 @@ async def ask(question: Question):
         # Получение текста ответа
         response_text = chat_completion.choices[0].message.content
         return {"response": response_text}
+    except openai.APIError as e:
+        logger.error(f"Произошла ошибка при получении ответа: {str(e)}")
+        if e.code == 'rate_limit_exceeded':
+            raise HTTPException(
+                status_code=429,
+                detail="Превышен лимит запросов к API OpenAI."
+            )
+        elif e.code == 'unsupported_country_region_territory':
+            raise HTTPException(
+                status_code=403,
+                detail="Ошибка 403: Ваш регион не поддерживается."
+            )
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Произошла ошибка при получении ответа: {str(e)}"
+            )
     except Exception as e:
         logger.error(f"Произошла ошибка при получении ответа: {str(e)}")
         raise HTTPException(

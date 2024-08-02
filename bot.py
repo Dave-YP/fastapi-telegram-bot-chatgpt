@@ -62,7 +62,25 @@ async def handle_message(
         answer = 'Произошла ошибка таймаута при попытке связаться с сервером.'
     except requests.RequestException as e:
         logger.error(f'Ошибка при запросе к API: {e}')
-        answer = 'Произошла ошибка при попытке связаться с сервером.'
+        if response is not None:
+            status_code = response.status_code
+            detail = response.json().get('detail', '')
+            if status_code == 401:
+                answer = 'Ошибка 401: Неверная аутентификация или некорректный API ключ.'
+            elif status_code == 403:
+                answer = 'Ошибка 403: Доступ запрещен. Возможно, ваш IP адрес заблокирован.'
+            elif status_code == 429:
+                answer = 'Ошибка 429: Превышен лимит запросов к API OpenAI.'
+            elif status_code == 451:
+                answer = 'Ошибка 451: Превышен лимит в 3 вопроса на день.'
+            elif status_code == 500:
+                answer = 'Ошибка 500: Внутренняя ошибка сервера. Пожалуйста, попробуйте позже.'
+            elif status_code == 503:
+                answer = 'Ошибка 503: Сервер перегружен. Пожалуйста, попробуйте позже.'
+            else:
+                answer = f'Произошла ошибка при попытке связаться с сервером. Код ошибки: {status_code}'
+        else:
+            answer = 'Произошла ошибка при попытке связаться с сервером.'
     except ValueError as e:
         logger.error(f'Ошибка при декодировании JSON: {e}')
         answer = 'Произошла ошибка при обработке ответа от сервера.'
