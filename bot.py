@@ -1,5 +1,4 @@
 import os
-
 import logging
 import requests
 
@@ -47,10 +46,10 @@ async def handle_message(
     user_id = update.message.from_user.id
     logger.info(f'Получен вопрос от пользователя {user_id}: {question}')
     try:
-        # Добавление таймаута для запроса
+        # Увеличение таймаута для запроса
         response = requests.post(
             API_URL, json={'user_id': str(user_id), 'question': question},
-            timeout=10
+            timeout=30  # Увеличенный таймаут
         )
         response.raise_for_status()  # Проверка успешного выполнения запроса
         answer = response.json().get(

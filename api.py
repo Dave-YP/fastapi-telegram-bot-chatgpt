@@ -1,10 +1,11 @@
+import os
+import logging
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import redis.asyncio as redis
 from datetime import datetime, timedelta
-import os
-from openai import AsyncOpenAI
-import logging
+import openai
 
 app = FastAPI()
 
@@ -48,8 +49,8 @@ async def ask(question: Question):
     await redis_client.incr(key)
 
     try:
-        # Создаем асинхронный клиент для OpenAI с таймаутом
-        client = AsyncOpenAI(api_key=api_key, timeout=10.0)
+        # Создаем асинхронный клиент для OpenAI
+        client = openai.AsyncClient(api_key=api_key)
 
         # Получение ответа от OpenAI
         chat_completion = await client.chat.completions.create(
@@ -63,7 +64,7 @@ async def ask(question: Question):
         )
 
         # Получение текста ответа
-        response_text = chat_completion['choices'][0]['message']['content']
+        response_text = chat_completion.choices[0].message.content
         return {"response": response_text}
     except Exception as e:
         logger.error(f"Произошла ошибка при получении ответа: {str(e)}")
