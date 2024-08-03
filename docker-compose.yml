@@ -1,21 +1,21 @@
 services:
-  postgres:
-    image: postgres:latest
-    container_name: postgres
-    environment:
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: mydatabase
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - mynetwork
-
   redis:
     image: "redis:latest"
     container_name: "redis"
     ports:
       - "6379:6379"
+    networks:
+      - mynetwork
+
+  postgres:
+    image: "postgres:latest"
+    container_name: "postgres"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: dbname
+    ports:
+      - "5432:5432"
     networks:
       - mynetwork
 
@@ -26,8 +26,8 @@ services:
     container_name: "fastapi"
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - DAILY_MESSAGE_LIMIT=${DAILY_MESSAGE_LIMIT}  # Добавляем переменную окружения
-      - DATABASE_URL=postgresql://myuser:mypassword@postgres/mydatabase
+      - DAILY_MESSAGE_LIMIT=${DAILY_MESSAGE_LIMIT}
+      - DATABASE_URL=${DATABASE_URL}
     ports:
       - "5000:5000"
     depends_on:
@@ -51,6 +51,3 @@ services:
 
 networks:
   mynetwork:
-
-volumes:
-  postgres_data:
