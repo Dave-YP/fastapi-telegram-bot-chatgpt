@@ -6,3 +6,5 @@ python-dotenv
 python-telegram-bot
 redis
 uvicorn
+sqlalchemy
+psycopg2-binary

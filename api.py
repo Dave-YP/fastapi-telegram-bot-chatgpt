@@ -1,10 +1,12 @@
 import os
 import logging
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 import redis.asyncio as redis
 from datetime import datetime, timedelta
 from openai import AsyncOpenAI, APIError
+from sqlalchemy.orm import Session
+from db import get_db, User
 
 app = FastAPI()
 
@@ -19,11 +21,25 @@ daily_message_limit = int(os.getenv('DAILY_MESSAGE_LIMIT', 3))
 # Подключение к Redis
 redis_client = redis.Redis(host='redis', port=6379, db=0)
 
+class RegisterUser(BaseModel):
+    username: str
+    password: str
+
+@app.post("/register")
+async def register_user(user: RegisterUser, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.username == user.username).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    hashed_password = user.password  # Здесь вы должны хэшировать пароль
+    new_user = User(username=user.username, hashed_password=hashed_password)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return {"message": "User registered successfully"}
 
 class Question(BaseModel):
     user_id: str
     question: str
-
 
 def get_message_limit_text(limit):
     """Возвращает правильно склоненное сообщение о лимите сообщений"""
@@ -33,7 +49,6 @@ def get_message_limit_text(limit):
         return f"Лимит в {limit} вопроса на день."
     else:
         return f"Лимит в {limit} вопросов на день."
-
 
 @app.post("/ask")
 async def ask(question: Question):

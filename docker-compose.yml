@@ -1,4 +1,16 @@
 services:
+  postgres:
+    image: postgres:latest
+    container_name: postgres
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: mydatabase
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - mynetwork
+
   redis:
     image: "redis:latest"
     container_name: "redis"
@@ -15,10 +27,12 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - DAILY_MESSAGE_LIMIT=${DAILY_MESSAGE_LIMIT}  # Добавляем переменную окружения
+      - DATABASE_URL=postgresql://myuser:mypassword@postgres/mydatabase
     ports:
       - "5000:5000"
     depends_on:
       - redis
+      - postgres
     networks:
       - mynetwork
 
@@ -37,3 +51,6 @@ services:
 
 networks:
   mynetwork:
+
+volumes:
+  postgres_data:
