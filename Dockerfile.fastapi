@@ -1,18 +1,15 @@
-# Используем базовый образ python
 FROM python:3.9-slim
 
-# Устанавливаем зависимости
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Копируем остальные файлы
-COPY . /app
-
-# Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Копируем файл .env
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt
+
 COPY .env /app/.env
 
-# Команда для запуска сервиса
+COPY . /app
+
+EXPOSE 5000
+
 CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "5000"]
