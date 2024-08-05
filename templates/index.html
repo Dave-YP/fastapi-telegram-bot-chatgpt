@@ -7,18 +7,21 @@
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-    <h1>Привет! Это чат-бот для ChatGPT API!</h1>
-    <div class="button-container">
-        {% if current_user %}
-            <p>Вы вошли как: {{ current_user.email }}</p>
-            <form action="/logout" method="post">
-                <button type="submit" class="logout-btn">Выйти</button>
-            </form>
-            <a href="{{ telegram_bot_url }}?start={{ bot_token }}"><button class="chat-btn">Начать чат</button></a>
-        {% else %}
-            <a href="/register"><button class="register-btn">Зарегистрироваться</button></a>
-            <a href="/login"><button class="login-btn">Войти</button></a>
-        {% endif %}
+    <div class="container">
+        <h1>Чат-бот для ChatGPT API</h1>
+        <div class="button-container">
+            {% if current_user %}
+                <p>Вы вошли как: {{ current_user.email }}</p>
+                <form action="/logout" method="post">
+                    <button type="submit" class="logout-btn">Выйти</button>
+                </form>
+                <a href="{{ telegram_bot_url }}?start={{ bot_token }}"><button class="chat-btn">Начать чат в Telegram</button></a>
+                <a href="/chat"><button class="chat-btn">Начать веб-чат</button></a>
+            {% else %}
+                <a href="/register"><button class="register-btn">Зарегистрироваться</button></a>
+                <a href="/login"><button class="login-btn">Войти</button></a>
+            {% endif %}
+        </div>
     </div>
 </body>
 </html>

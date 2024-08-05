@@ -5,77 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Вход</title>
     <link rel="stylesheet" href="/static/styles.css">
-    <style>
-        .login-form {
-            background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            width: 300px;
-        }
-        .login-form input[type="text"],
-        .login-form input[type="password"] {
-            width: 100%;
-            padding: 10px;
-            margin: 10px 0;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            box-sizing: border-box;
-        }
-        .login-form input[type="submit"] {
-            width: 100%;
-            padding: 10px;
-            background-color: #008CBA;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        .login-form input[type="submit"]:hover {
-            background-color: #005f73;
-        }
-        .message {
-            margin-bottom: 15px;
-            padding: 10px;
-            border-radius: 4px;
-        }
-        .error {
-            background-color: #ffebee;
-            color: #c62828;
-        }
-        .success {
-            background-color: #e8f5e9;
-            color: #2e7d32;
-        }
-        .button-group {
-            display: flex;
-            justify-content: space-between;
-        }
-        .button-group a {
-            display: block;
-            padding: 10px;
-            background-color: #ddd;
-            color: #333;
-            text-align: center;
-            text-decoration: none;
-            border-radius: 4px;
-            width: 48%;
-            box-sizing: border-box;
-        }
-        .button-group a:hover {
-            background-color: #bbb;
-        }
-    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div class="login-form">
+    <div class="form-container">
         <h1>Вход</h1>
         <div id="message" class="message" style="display: none;"></div>
         <form id="loginForm" method="post">
-            <label for="email">Email:</label>
-            <input type="text" id="email" name="email" required>
-            <label for="password">Пароль:</label>
-            <input type="password" id="password" name="password" required>
+            <label for="email">Email</label>
+            <input type="text" id="email" name="email" required placeholder="Введите ваш email">
+            <label for="password">Пароль</label>
+            <input type="password" id="password" name="password" required placeholder="Введите ваш пароль">
             <input type="submit" value="Войти">
         </form>
         <div class="button-group">
@@ -140,7 +80,6 @@
         }
     });
 
-    // Отображение сообщения об успешной регистрации, если есть
     window.onload = function() {
         var urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('registered') === 'true') {

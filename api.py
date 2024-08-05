@@ -26,7 +26,7 @@ TELEGRAM_BOT_URL = os.getenv("TELEGRAM_BOT_URL")
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
+daily_message_limit = int(os.getenv("DAILY_MESSAGE_LIMIT", 3))
 app = FastAPI()
 
 # Настройка CORS
@@ -54,6 +54,63 @@ async def startup_event():
 
 def generate_bot_token(user_id: int) -> str:
     return secrets.token_urlsafe(32)
+
+
+@app.get("/chat", response_class=HTMLResponse)
+async def chat_page(request: Request, db: AsyncSession = Depends(get_db)):
+    try:
+        current_user = await AuthService.get_current_user(request, db)
+        return templates.TemplateResponse(
+            "chat.html",
+            {"request": request,
+             "current_user": current_user}
+        )
+    except HTTPException:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+@app.post("/chat")
+async def chat(
+    message: dict,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        current_user = await AuthService.get_current_user(request, db)
+    except HTTPException:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = current_user.id
+
+    if len(message['message']) > 1000:
+        raise HTTPException(
+            status_code=400,
+            detail="Максимальная длина сообщения - 1000 символов."
+        )
+
+    try:
+        await MessageLimitService.check_and_increment_question_count(
+            redis_client,
+            user_id
+        )
+    except HTTPException:
+        limit_message = get_message_limit_text(daily_message_limit)
+        return {"response": limit_message, "error": True}
+
+    try:
+        response_text = await OpenAIService.ask_question(message['message'])
+        return {"response": response_text}
+    except HTTPException as e:
+        raise e
+
+
+def get_message_limit_text(limit):
+    if limit % 10 == 1 and limit % 100 != 11:
+        return f"Ошибка 451: Достигнут дневной лимит в {limit} вопрос."
+    elif limit % 10 in [2, 3, 4] and not (limit % 100 in [12, 13, 14]):
+        return f"Ошибка 451: Достигнут дневной лимит в {limit} вопроса."
+    else:
+        return f"Ошибка 451: Достигнут дневной лимит в {limit} вопросов."
 
 
 @app.get("/", response_class=HTMLResponse)
