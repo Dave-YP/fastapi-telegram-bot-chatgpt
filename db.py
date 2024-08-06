@@ -1,10 +1,10 @@
 import os
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy import Column, Integer, String, DateTime
 from datetime import datetime, timezone
 
-# Обратите внимание на изменение драйвера с postgresql на postgresql+asyncpg
 DATABASE_URL = os.getenv(
     'DATABASE_URL',
     'postgresql+asyncpg://user:password@postgres/dbname'
@@ -26,7 +26,9 @@ class User(Base):
     hashed_password = Column(String)
     created_at = Column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc))
+        default=lambda: datetime.now(timezone.utc)
+    )
+    tokens = Column(Integer, default=999)  # Новое поле для токенов
 
 
 async def init_db():

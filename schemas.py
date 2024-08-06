@@ -20,3 +20,12 @@ class RegisterUser(BaseModel):
 class Question(BaseModel):
     user_id: str
     question: str
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    tokens: int
+
+    class Config:
+        orm_mode = True

@@ -17,6 +17,7 @@ import secrets
 
 from db import get_db, User, init_db
 from services import AuthService, OpenAIService, MessageLimitService
+from services import TokenService
 from schemas import Token, RegisterUser, Question
 from status_codes import StatusMessages
 
@@ -64,7 +65,8 @@ async def chat_page(request: Request, db: AsyncSession = Depends(get_db)):
         return templates.TemplateResponse(
             "chat.html",
             {"request": request,
-             "current_user": current_user}
+             "current_user": current_user,
+             "tokens_remaining": current_user.tokens}
         )
     except HTTPException:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -79,12 +81,18 @@ async def chat(
     try:
         current_user = await AuthService.get_current_user(request, db)
     except HTTPException:
-        raise HTTPException(status_code=401, detail=StatusMessages.UNAUTHORIZED)
+        raise HTTPException(
+            status_code=401,
+            detail=StatusMessages.UNAUTHORIZED
+        )
 
     user_id = current_user.id
 
-    if len(message['message']) > 1000:
-        return {"response": "Максимальная длина сообщения - 1000 символов.", "error": True}
+    if len(message['message']) > 2000:
+        return {
+            "response": "Максимальная длина сообщения - 2000 символов.",
+            "error": True
+        }
 
     try:
         await MessageLimitService.check_and_increment_question_count(
@@ -92,12 +100,31 @@ async def chat(
             user_id
         )
     except HTTPException:
-        limit_message = StatusMessages.get_message_limit_text(daily_message_limit)
+        limit_message = StatusMessages.get_message_limit_text(
+            daily_message_limit
+        )
         return {"response": limit_message, "error": True}
+
+    tokens_needed = TokenService.count_tokens(message['message'])
+    if not await TokenService.deduct_tokens(user_id, tokens_needed, db):
+        return {"response": "Недостаточно токенов.", "error": True}
 
     try:
         response_text = await OpenAIService.ask_question(message['message'])
-        return {"response": response_text}
+        tokens_used = TokenService.count_tokens(response_text)
+        if not await TokenService.deduct_tokens(user_id, tokens_used, db):
+            return {
+                "response": "Недостаточно токенов для получения ответа.",
+                "error": True
+            }
+
+        current_user.tokens -= (tokens_needed + tokens_used)
+        await db.commit()
+
+        return {
+            "response": response_text,
+            "tokens_remaining": current_user.tokens
+        }
     except HTTPException as e:
         if e.status_code == 401:
             return {"response": StatusMessages.SESSION_EXPIRED, "error": True}
@@ -114,7 +141,10 @@ async def chat(
 
     except Exception as e:
         logger.error(f"Неожиданная ошибка: {str(e)}")
-        raise HTTPException(status_code=500, detail=StatusMessages.SERVER_ERROR)
+        raise HTTPException(
+            status_code=500,
+            detail=StatusMessages.SERVER_ERROR
+        )
 
 
 def get_message_limit_text(limit):
@@ -133,7 +163,8 @@ async def read_root(request: Request, db: AsyncSession = Depends(get_db)):
         context = {
             "request": request,
             "current_user": current_user,
-            "telegram_bot_url": TELEGRAM_BOT_URL
+            "telegram_bot_url": TELEGRAM_BOT_URL,
+            "tokens_remaining": current_user.tokens
         }
 
         if current_user:
@@ -246,7 +277,8 @@ async def register_user(
         hashed_password = AuthService.pwd_context.hash(register_user.password)
         new_user = User(
             email=register_user.email,
-            hashed_password=hashed_password
+            hashed_password=hashed_password,
+            tokens=999
         )
         db.add(new_user)
         await db.commit()
@@ -378,10 +410,10 @@ async def ask(
         raise e
     user_id = current_user.id
 
-    if len(question.question) > 1000:
+    if len(question.question) > 2000:
         raise HTTPException(
             status_code=400,
-            detail="Максимальная длина вопроса - 1000 символов."
+            detail="Максимальная длина вопроса - 2000 символов."
         )
 
     try:
@@ -391,11 +423,41 @@ async def ask(
     except HTTPException as e:
         raise e
 
+    tokens_needed = TokenService.count_tokens(question.question)
+    if not await TokenService.deduct_tokens(user_id, tokens_needed, db):
+        raise HTTPException(
+            status_code=400,
+            detail="Недостаточно токенов для отправки вопроса."
+        )
+
     try:
         response_text = await OpenAIService.ask_question(question.question)
-        return {"response": response_text}
+        tokens_used = TokenService.count_tokens(response_text)
+        if not await TokenService.deduct_tokens(user_id, tokens_used, db):
+            raise HTTPException(
+                status_code=400,
+                detail="Недостаточно токенов для получения ответа."
+            )
+        return {
+            "response": response_text,
+            "tokens_used": tokens_needed + tokens_used,
+            "tokens_remaining": current_user.tokens
+        }
     except HTTPException as e:
         raise e
+
+
+@app.get("/tokenbalance")
+async def get_token_balance(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        current_user = await AuthService.get_current_user(request, db)
+    except HTTPException:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    return {"tokens_remaining": current_user.tokens}
 
 
 if __name__ == '__main__':

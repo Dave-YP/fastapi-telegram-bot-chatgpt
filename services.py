@@ -2,9 +2,9 @@ import os
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import HTTPException, Request, Depends
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import Depends, HTTPException, Request
 from jose import JWTError, jwt
+from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -194,3 +194,25 @@ class MessageLimitService:
             )
 
         await redis_client.incr(key)
+
+
+class TokenService:
+    @staticmethod
+    def count_tokens(message: str) -> int:
+        words = message.split()
+        num_words = len(words)
+        num_chars = len(message)
+        tokens = num_words + int(num_chars * 0.1)
+        return tokens
+
+    @staticmethod
+    async def deduct_tokens(
+        user_id: int,
+        tokens: int, db: AsyncSession
+    ) -> bool:
+        user = await db.get(User, user_id)
+        if user and user.tokens >= tokens:
+            user.tokens -= tokens
+            await db.commit()
+            return True
+        return False

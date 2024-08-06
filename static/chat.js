@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatForm = document.getElementById('chat-form');
     const userInput = document.getElementById('user-input');
     const chatMessages = document.getElementById('chat-messages');
+    const tokenBalance = document.getElementById('token-balance');
     const chatContainer = document.querySelector('.chat-container');
 
     // Создаем кнопки "Выход" и "Очистить чат"
@@ -47,6 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     addMessage('error', data.response);
                 } else {
                     addMessage('bot', data.response);
+                    tokenBalance.textContent = data.tokens_remaining;
                 }
             } catch (error) {
                 console.error('Error:', error);

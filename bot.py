@@ -1,12 +1,10 @@
 import os
 import logging
-
 import aiohttp
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler
 from telegram.ext import ConversationHandler, CallbackContext, filters
-
 from status_codes import StatusMessages
 
 load_dotenv()
@@ -25,7 +23,7 @@ if not telegram_token:
 if not api_url:
     raise ValueError("API_URL должен быть предоставлен")
 
-REGISTER_EMAIL, REGISTER_PASSWORD, LOGIN_EMAIL, LOGIN_PASSWORD = range(4)
+LOGIN_EMAIL, LOGIN_PASSWORD = range(2)
 user_sessions = {}
 
 
@@ -70,22 +68,10 @@ async def start(update: Update, context: CallbackContext) -> None:
     else:
         await update.message.reply_text(
             "Привет! Я бот для ответов на ваши вопросы. "
-            "Используйте команду /register для регистрации, "
-            "/login для входа и /logout для выхода из системы."
+            "Используйте команду /login для входа, "
+            "/logout для выхода из системы "
+            "и /tokenbalance для проверки остатка токенов."
         )
-
-
-async def register(update: Update, context: CallbackContext) -> int:
-    await update.message.reply_text(
-        "Пожалуйста, введите вашу электронную почту для регистрации:"
-    )
-    return REGISTER_EMAIL
-
-
-async def get_register_email(update: Update, context: CallbackContext) -> int:
-    user_sessions[update.message.chat_id] = {"email": update.message.text}
-    await update.message.reply_text("Теперь введите ваш пароль:")
-    return REGISTER_PASSWORD
 
 
 async def handle_api_error(update: Update, error_message: str):
@@ -93,52 +79,10 @@ async def handle_api_error(update: Update, error_message: str):
     await update.message.reply_text(f"Произошла ошибка: {error_message}")
 
 
-async def get_register_password(
-    update: Update,
-    context: CallbackContext
-) -> int:
-    user_data = user_sessions[update.message.chat_id]
-    password = update.message.text
-
-    if len(password) < 6:
-        await update.message.reply_text(
-            "Пароль должен содержать минимум 6 символов."
-        )
-        return REGISTER_PASSWORD
-
-    user_data["password"] = password
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.post(
-                f"{api_url}/register",
-                json={
-                    "email": user_data["email"],
-                    "password": user_data["password"],
-                    "message": ""
-                },
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    await update.message.reply_text(data["message"])
-                elif response.status == 400:
-                    await update.message.reply_text(
-                        "Электронная почта уже зарегистрирована."
-                    )
-                else:
-                    error_data = await response.json()
-                    await handle_api_error(
-                        update, error_data.get("detail", "Неизвестная ошибка")
-                    )
-        except Exception as e:
-            await handle_api_error(update, str(e))
-    user_sessions.pop(update.message.chat_id, None)
-    return ConversationHandler.END
-
-
 async def login(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text(
-        "Пожалуйста, введите вашу "
-        "электронную почту для входа:")
+        "Пожалуйста, введите вашу электронную почту для входа:"
+    )
     return LOGIN_EMAIL
 
 
@@ -163,8 +107,7 @@ async def get_login_password(update: Update, context: CallbackContext) -> int:
 
     if len(password) < 6:
         await update.message.reply_text(
-            "Пароль должен содержать "
-            "минимум 6 символов."
+            "Пароль должен содержать минимум 6 символов."
         )
         return LOGIN_PASSWORD
 
@@ -204,8 +147,10 @@ async def answer_question(update: Update, context: CallbackContext) -> None:
         return
 
     question_text = update.message.text
-    if len(question_text) > 1000:
-        await update.message.reply_text("Максимальная длина сообщения - 1000 символов.")
+    if len(question_text) > 2000:
+        await update.message.reply_text(
+            "Максимальная длина сообщения - 2000 символов."
+        )
         return
 
     logger.info(f"Получен вопрос от chat_id {chat_id}: {question_text}")
@@ -227,12 +172,15 @@ async def answer_question(update: Update, context: CallbackContext) -> None:
             ) as response:
                 if response.status == 200:
                     data = await response.json()
-                    reply_message = data.get(
-                        "response",
-                        "Извините, я не могу ответить "
-                        "на этот вопрос прямо сейчас."
+                    reply_message = (
+                        f"{data.get('response')}\n\n"
+                        f"Использовано токенов: {data.get('tokens_used')}\n"
+                        f"Остаток токенов: {data.get('tokens_remaining')}"
                     )
                     await update.message.reply_text(reply_message)
+                elif response.status == 400:
+                    error_data = await response.json()
+                    await update.message.reply_text(error_data.get("detail", "Недостаточно токенов."))
                 elif response.status == 401:
                     await update.message.reply_text(StatusMessages.SESSION_EXPIRED)
                     user_sessions.pop(chat_id, None)
@@ -273,27 +221,61 @@ async def answer_question(update: Update, context: CallbackContext) -> None:
             )
 
 
+async def get_token_balance(update: Update, context: CallbackContext) -> None:
+    chat_id = update.message.chat_id
+    if chat_id not in user_sessions or "token" not in user_sessions[chat_id]:
+        await update.message.reply_text(StatusMessages.LOGIN_REQUIRED)
+        return
+
+    async with aiohttp.ClientSession() as session:
+        try:
+            headers = {
+                "Authorization": f"Bearer {user_sessions[chat_id]['token']}"
+            }
+            async with session.get(
+                f"{api_url}/tokenbalance",
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    tokens_remaining = data.get("tokens_remaining")
+                    await update.message.reply_text(f"Остаток токенов: {tokens_remaining}")
+                elif response.status == 401:
+                    await update.message.reply_text(StatusMessages.SESSION_EXPIRED)
+                    user_sessions.pop(chat_id, None)
+                else:
+                    await update.message.reply_text(
+                        f"Неожиданная ошибка: HTTP {response.status}"
+                    )
+
+        except aiohttp.ClientResponseError as e:
+            logger.error(f"Ошибка запроса API: {e.status} - {e.message}")
+            await update.message.reply_text(f"Ошибка запроса API: {e.message}")
+
+        except aiohttp.ClientConnectionError as e:
+            logger.error(f"Ошибка соединения: {str(e)}")
+            await update.message.reply_text(
+                "Ошибка соединения с сервером. Пожалуйста, попробуйте позже."
+            )
+
+        except aiohttp.ClientTimeout as e:
+            logger.error(f"Ошибка таймаута: {str(e)}")
+            await update.message.reply_text("Таймаут ответа сервера.")
+
+        except Exception as e:
+            logger.error(f"Неожиданная ошибка: {str(e)}")
+            await update.message.reply_text(
+                "Произошла неожиданная ошибка. Пожалуйста, попробуйте позже."
+            )
+
+
 def main() -> None:
     application = ApplicationBuilder().token(telegram_token).build()
 
     conv_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler("register", register),
-            CommandHandler("login", login)
-        ],
+        entry_points=[CommandHandler("login", login)],
         states={
-            REGISTER_EMAIL: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    get_register_email
-                )
-            ],
-            REGISTER_PASSWORD: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND,
-                    get_register_password
-                )
-            ],
             LOGIN_EMAIL: [
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
@@ -313,6 +295,7 @@ def main() -> None:
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("logout", logout))
+    application.add_handler(CommandHandler("tokenbalance", get_token_balance))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, answer_question)
     )
