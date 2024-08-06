@@ -7,6 +7,8 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler
 from telegram.ext import ConversationHandler, CallbackContext, filters
 
+from status_codes import StatusMessages
+
 load_dotenv()
 
 logging.basicConfig(
@@ -25,15 +27,6 @@ if not api_url:
 
 REGISTER_EMAIL, REGISTER_PASSWORD, LOGIN_EMAIL, LOGIN_PASSWORD = range(4)
 user_sessions = {}
-
-
-def get_message_limit_text(limit):
-    if limit % 10 == 1 and limit % 100 != 11:
-        return f"Ошибка 451: Достигнут дневной лимит в {limit} вопрос."
-    elif limit % 10 in [2, 3, 4] and not (limit % 100 in [12, 13, 14]):
-        return f"Ошибка 451: Достигнут дневной лимит в {limit} вопроса."
-    else:
-        return f"Ошибка 451: Достигнут дневной лимит в {limit} вопросов."
 
 
 async def handle_auth_token(update: Update, context: CallbackContext) -> None:
@@ -207,12 +200,14 @@ async def get_login_password(update: Update, context: CallbackContext) -> int:
 async def answer_question(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     if chat_id not in user_sessions or "token" not in user_sessions[chat_id]:
-        await update.message.reply_text(
-            "Пожалуйста, войдите с помощью команды /login."
-        )
+        await update.message.reply_text(StatusMessages.LOGIN_REQUIRED)
         return
 
     question_text = update.message.text
+    if len(question_text) > 1000:
+        await update.message.reply_text("Максимальная длина сообщения - 1000 символов.")
+        return
+
     logger.info(f"Получен вопрос от chat_id {chat_id}: {question_text}")
 
     async with aiohttp.ClientSession() as session:
@@ -239,33 +234,22 @@ async def answer_question(update: Update, context: CallbackContext) -> None:
                     )
                     await update.message.reply_text(reply_message)
                 elif response.status == 401:
-                    await update.message.reply_text(
-                        "Ваша сессия истекла. Пожалуйста, "
-                        "войдите снова с помощью команды /login."
-                    )
+                    await update.message.reply_text(StatusMessages.SESSION_EXPIRED)
                     user_sessions.pop(chat_id, None)
                 elif response.status == 422:
                     error_data = await response.json()
                     logger.error(f"Ошибка валидации: {error_data}")
-                    await update.message.reply_text(
-                        "Ошибка 422: Неверный запрос. Пожалуйста, "
-                        "попробуйте снова или обратитесь в поддержку."
-                    )
+                    await update.message.reply_text(StatusMessages.VALIDATION_ERROR)
                 elif response.status == 451:
-                    error_message = get_message_limit_text(daily_message_limit)
+                    error_message = StatusMessages.get_message_limit_text(daily_message_limit)
                     await update.message.reply_text(error_message)
                 elif response.status == 403:
-                    await update.message.reply_text(
-                        "Ошибка 403: Запрещено. Ваш регион не поддерживается."
-                    )
+                    await update.message.reply_text(StatusMessages.FORBIDDEN)
                 elif response.status == 500:
-                    await update.message.reply_text(
-                        "Ошибка 500: Внутренняя ошибка сервера. "
-                        "Пожалуйста, попробуйте позже."
-                    )
+                    await update.message.reply_text(StatusMessages.SERVER_ERROR)
                 else:
                     await update.message.reply_text(
-                        f"Неожиданная ошибка: HTTP {response.status}"
+                        StatusMessages.UNEXPECTED_ERROR.format(status=response.status)
                     )
 
         except aiohttp.ClientResponseError as e:

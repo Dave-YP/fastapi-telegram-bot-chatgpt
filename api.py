@@ -18,6 +18,7 @@ import secrets
 from db import get_db, User, init_db
 from services import AuthService, OpenAIService, MessageLimitService
 from schemas import Token, RegisterUser, Question
+from status_codes import StatusMessages
 
 load_dotenv()
 
@@ -78,15 +79,12 @@ async def chat(
     try:
         current_user = await AuthService.get_current_user(request, db)
     except HTTPException:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401, detail=StatusMessages.UNAUTHORIZED)
 
     user_id = current_user.id
 
     if len(message['message']) > 1000:
-        raise HTTPException(
-            status_code=400,
-            detail="Максимальная длина сообщения - 1000 символов."
-        )
+        return {"response": "Максимальная длина сообщения - 1000 символов.", "error": True}
 
     try:
         await MessageLimitService.check_and_increment_question_count(
@@ -94,14 +92,29 @@ async def chat(
             user_id
         )
     except HTTPException:
-        limit_message = get_message_limit_text(daily_message_limit)
+        limit_message = StatusMessages.get_message_limit_text(daily_message_limit)
         return {"response": limit_message, "error": True}
 
     try:
         response_text = await OpenAIService.ask_question(message['message'])
         return {"response": response_text}
     except HTTPException as e:
-        raise e
+        if e.status_code == 401:
+            return {"response": StatusMessages.SESSION_EXPIRED, "error": True}
+        elif e.status_code == 422:
+            return {"response": StatusMessages.VALIDATION_ERROR, "error": True}
+        elif e.status_code == 451:
+            return {"response": StatusMessages.get_message_limit_text(daily_message_limit), "error": True}
+        elif e.status_code == 403:
+            return {"response": StatusMessages.FORBIDDEN, "error": True}
+        elif e.status_code == 500:
+            return {"response": StatusMessages.SERVER_ERROR, "error": True}
+        else:
+            return {"response": StatusMessages.UNEXPECTED_ERROR.format(status=e.status_code), "error": True}
+
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка: {str(e)}")
+        raise HTTPException(status_code=500, detail=StatusMessages.SERVER_ERROR)
 
 
 def get_message_limit_text(limit):
