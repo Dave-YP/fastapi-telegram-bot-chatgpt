@@ -1,5 +1,3 @@
-# status_codes.py
-
 class StatusMessages:
     LOGIN_REQUIRED = "Пожалуйста, войдите с помощью команды /login."
     SESSION_EXPIRED = "Ваша сессия истекла. Пожалуйста, войдите снова с помощью команды /login."

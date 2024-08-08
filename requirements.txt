@@ -2,6 +2,7 @@ aiohttp
 fastapi
 openai
 pydantic[email]
+pydantic-settings
 python-dotenv
 python-telegram-bot
 redis

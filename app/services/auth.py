@@ -8,9 +8,9 @@ from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from openai import AsyncOpenAI, APIError
 
-from db import User, get_db
+from app.db.models import User
+from app.db.init_db import get_db
 
 
 class AuthService:
@@ -120,99 +120,3 @@ class AuthService:
         if user is None:
             raise credentials_exception
         return user
-
-
-class OpenAIService:
-    api_key = os.getenv('OPENAI_API_KEY')
-
-    @classmethod
-    async def ask_question(cls, question: str):
-        try:
-            client = AsyncOpenAI(api_key=cls.api_key)
-            chat_completion = await client.chat.completions.create(
-                messages=[
-                    {
-                        "role": "user",
-                        "content": question,
-                    }
-                ],
-                model="gpt-3.5-turbo",
-            )
-            return chat_completion.choices[0].message.content
-        except APIError as e:
-            if e.code == 'rate_limit_exceeded':
-                raise HTTPException(
-                    status_code=429,
-                    detail="Превышен лимит запросов к API OpenAI."
-                )
-            elif e.code == 'unsupported_country_region_territory':
-                raise HTTPException(
-                    status_code=403,
-                    detail="Ошибка 403: Ваш регион не поддерживается."
-                )
-            else:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Произошла ошибка при получении ответа: {str(e)}"
-                )
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Произошла ошибка при получении ответа: {str(e)}"
-            )
-
-
-class MessageLimitService:
-    daily_message_limit = int(os.getenv('DAILY_MESSAGE_LIMIT', 3))
-
-    @classmethod
-    def get_message_limit_text(cls, limit):
-        if limit % 10 == 1 and limit % 100 != 11:
-            return f"Лимит в {limit} вопрос на день."
-        elif limit % 10 in [2, 3, 4] and limit % 100 not in [12, 13, 14]:
-            return f"Лимит в {limit} вопроса на день."
-        else:
-            return f"Лимит в {limit} вопросов на день."
-
-    @classmethod
-    async def check_and_increment_question_count(cls, redis_client, user_id):
-        today = datetime.now().strftime('%Y-%m-%d')
-        key = f"{user_id}:{today}"
-
-        question_count = await redis_client.get(key)
-        if question_count is None:
-            await redis_client.set(key, 0, ex=timedelta(days=1))
-            question_count = 0
-        else:
-            question_count = int(question_count)
-
-        if question_count >= cls.daily_message_limit:
-            limit_message = cls.get_message_limit_text(cls.daily_message_limit)
-            raise HTTPException(
-                status_code=451,
-                detail=f"Ошибка 451: Превышен {limit_message}."
-            )
-
-        await redis_client.incr(key)
-
-
-class TokenService:
-    @staticmethod
-    def count_tokens(message: str) -> int:
-        words = message.split()
-        num_words = len(words)
-        num_chars = len(message)
-        tokens = num_words + int(num_chars * 0.1)
-        return tokens
-
-    @staticmethod
-    async def deduct_tokens(
-        user_id: int,
-        tokens: int, db: AsyncSession
-    ) -> bool:
-        user = await db.get(User, user_id)
-        if user and user.tokens >= tokens:
-            user.tokens -= tokens
-            await db.commit()
-            return True
-        return False

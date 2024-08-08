@@ -1,22 +1,19 @@
-import os
 import logging
 import aiohttp
-from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler
 from telegram.ext import ConversationHandler, CallbackContext, filters
-from status_codes import StatusMessages
-
-load_dotenv()
+from app.core.status_codes import StatusMessages
+from app.core.config import settings
 
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(name)s - %(levellevel)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-telegram_token = os.getenv("TELEGRAM_TOKEN")
-api_url = os.getenv("API_URL")
-daily_message_limit = int(os.getenv("DAILY_MESSAGE_LIMIT", 3))
+telegram_token = settings.TELEGRAM_TOKEN
+api_url = settings.API_URL
+daily_message_limit = settings.DAILY_MESSAGE_LIMIT
 
 if not telegram_token:
     raise ValueError("TELEGRAM_TOKEN должен быть предоставлен")

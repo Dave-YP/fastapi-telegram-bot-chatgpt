@@ -1,64 +1,71 @@
-import os
 import logging
 from datetime import timedelta
 
-from fastapi import FastAPI, HTTPException, Depends, Request, Form
+from fastapi import APIRouter, HTTPException, Depends, Request, Form
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from dotenv import load_dotenv
 import aioredis
 import secrets
 
-from db import get_db, User, init_db
-from services import AuthService, OpenAIService, MessageLimitService
-from services import TokenService
-from schemas import Token, RegisterUser, Question
-from status_codes import StatusMessages
+from app.db.init_db import get_db
+from app.db.models import User
+from app.services.auth import AuthService
+from app.services.openai_service import OpenAIService
+from app.services.message_limit import MessageLimitService
+from app.services.token_service import TokenService
+from app.schemas.user import RegisterUser, Question
+from app.schemas.token import Token
+from app.core.status_codes import StatusMessages
+from app.core.config import settings
 
-load_dotenv()
 
-TELEGRAM_BOT_URL = os.getenv("TELEGRAM_BOT_URL")
-
-# Настройка логирования
+router = APIRouter()
+templates = Jinja2Templates(directory="app/templates")
+redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+daily_message_limit = settings.DAILY_MESSAGE_LIMIT
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-daily_message_limit = int(os.getenv("DAILY_MESSAGE_LIMIT", 3))
-app = FastAPI()
-
-# Настройка CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Замените на конкретные домены в продакшене
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Настройка статических файлов и шаблонов
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
-
-# Инициализация Redis
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
-
-
-@app.on_event("startup")
-async def startup_event():
-    await init_db()
 
 
 def generate_bot_token(user_id: int) -> str:
     return secrets.token_urlsafe(32)
 
 
-@app.get("/chat", response_class=HTMLResponse)
+@router.get("/", response_class=HTMLResponse)
+async def read_root(request: Request, db: AsyncSession = Depends(get_db)):
+    try:
+        current_user = await AuthService.get_current_user(request, db)
+        context = {
+            "request": request,
+            "current_user": current_user,
+            "telegram_bot_url": settings.TELEGRAM_BOT_URL,
+            "tokens_remaining": current_user.tokens
+        }
+
+        if current_user:
+            bot_token = generate_bot_token(current_user.id)
+            await redis_client.setex(
+                f"bot_token:{bot_token}", 3600, str(current_user.id)
+            )
+            context["bot_token"] = bot_token
+
+        return templates.TemplateResponse("index.html", context)
+    except HTTPException:
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "current_user": None,
+                "telegram_bot_url": settings.TELEGRAM_BOT_URL
+            }
+        )
+
+
+@router.get("/chat", response_class=HTMLResponse)
 async def chat_page(request: Request, db: AsyncSession = Depends(get_db)):
     try:
         current_user = await AuthService.get_current_user(request, db)
@@ -72,7 +79,7 @@ async def chat_page(request: Request, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
-@app.post("/chat")
+@router.post("/chat")
 async def chat(
     message: dict,
     request: Request,
@@ -88,9 +95,9 @@ async def chat(
 
     user_id = current_user.id
 
-    if len(message['message']) > 2000:
+    if len(message['message']) > 1000:
         return {
-            "response": "Максимальная длина сообщения - 2000 символов.",
+            "response": "Максимальная длина сообщения - 1000 символов.",
             "error": True
         }
 
@@ -156,37 +163,7 @@ def get_message_limit_text(limit):
         return f"Ошибка 451: Достигнут дневной лимит в {limit} вопросов."
 
 
-@app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request, db: AsyncSession = Depends(get_db)):
-    try:
-        current_user = await AuthService.get_current_user(request, db)
-        context = {
-            "request": request,
-            "current_user": current_user,
-            "telegram_bot_url": TELEGRAM_BOT_URL,
-            "tokens_remaining": current_user.tokens
-        }
-
-        if current_user:
-            bot_token = generate_bot_token(current_user.id)
-            await redis_client.setex(
-                f"bot_token:{bot_token}", 3600, str(current_user.id)
-            )
-            context["bot_token"] = bot_token
-
-        return templates.TemplateResponse("index.html", context)
-    except HTTPException:
-        return templates.TemplateResponse(
-            "index.html",
-            {
-                "request": request,
-                "current_user": None,
-                "telegram_bot_url": TELEGRAM_BOT_URL
-            }
-        )
-
-
-@app.get("/login", response_class=HTMLResponse)
+@router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     registered = request.query_params.get("registered", "false") == "true"
     return templates.TemplateResponse(
@@ -194,7 +171,7 @@ async def login_page(request: Request):
     )
 
 
-@app.post("/login")
+@router.post("/login")
 async def login(
     request: Request, email: str = Form(...), password: str = Form(...),
     db: AsyncSession = Depends(get_db)
@@ -216,12 +193,12 @@ async def login(
     return response
 
 
-@app.get("/register", response_class=HTMLResponse)
+@router.get("/register", response_class=HTMLResponse)
 async def register_form(request: Request):
     return templates.TemplateResponse("register.html", {"request": request})
 
 
-@app.post("/register/form")
+@router.post("/register/form")
 async def register_user_form(
     request: Request, email: str = Form(...), password: str = Form(...),
     db: AsyncSession = Depends(get_db)
@@ -259,7 +236,7 @@ async def register_user_form(
         )
 
 
-@app.post("/register", response_model=RegisterUser)
+@router.post("/register", response_model=RegisterUser)
 async def register_user(
     register_user: RegisterUser, db: AsyncSession = Depends(get_db)
 ):
@@ -303,14 +280,14 @@ async def register_user(
         )
 
 
-@app.post("/logout")
+@router.post("/logout")
 async def logout(request: Request):
     response = RedirectResponse(url="/", status_code=303)
     response.delete_cookie(key="access_token")
     return response
 
 
-@app.get("/health")
+@router.get("/health")
 async def health_check(db: AsyncSession = Depends(get_db)):
     try:
         await db.execute("SELECT 1")
@@ -322,7 +299,7 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         }
 
 
-@app.post("/token", response_model=Token)
+@router.post("/token", response_model=Token)
 async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
@@ -345,7 +322,7 @@ async def login_for_access_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@app.post("/refresh_token", response_model=Token)
+@router.post("/refresh_token", response_model=Token)
 async def refresh_token(request: Request, db: AsyncSession = Depends(get_db)):
     try:
         current_user = await AuthService.get_current_user(request, db)
@@ -365,7 +342,7 @@ async def refresh_token(request: Request, db: AsyncSession = Depends(get_db)):
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@app.post("/verify_token")
+@router.post("/verify_token")
 async def verify_token(token_data: dict, db: AsyncSession = Depends(get_db)):
     token = token_data.get("token")
     if not token:
@@ -395,7 +372,7 @@ async def verify_token(token_data: dict, db: AsyncSession = Depends(get_db)):
     return {"access_token": access_token, "email": user.email}
 
 
-@app.post("/ask")
+@router.post("/ask")
 async def ask(
     question: Question,
     request: Request,
@@ -410,10 +387,10 @@ async def ask(
         raise e
     user_id = current_user.id
 
-    if len(question.question) > 2000:
+    if len(question.question) > 1000:
         raise HTTPException(
             status_code=400,
-            detail="Максимальная длина вопроса - 2000 символов."
+            detail="Максимальная длина вопроса - 1000 символов."
         )
 
     try:
@@ -447,7 +424,7 @@ async def ask(
         raise e
 
 
-@app.get("/tokenbalance")
+@router.get("/tokenbalance")
 async def get_token_balance(
     request: Request,
     db: AsyncSession = Depends(get_db)
@@ -458,8 +435,3 @@ async def get_token_balance(
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     return {"tokens_remaining": current_user.tokens}
-
-
-if __name__ == '__main__':
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=5000)
